@@ -3,3 +3,4 @@ kernel_env/
 _pycache_/
 *.png
 *.jpg
+.DS_Store
