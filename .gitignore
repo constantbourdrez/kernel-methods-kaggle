@@ -1,0 +1,5 @@
+data/
+kernel_env/
+_pycache_/
+*.png
+*.jpg
