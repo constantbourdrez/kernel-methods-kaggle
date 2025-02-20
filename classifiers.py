@@ -3,8 +3,12 @@ import cvxopt
 
 
 ###########"Define frequently used functions
-sigmoid = lambda x: 1. / (1 + np.exp(-x))  # Sigmoid function
-inverse_sigmoid = lambda x: np.log(1 / x - 1)  # Inverse of sigmoid
+sigmoid = lambda x: 1. / (1 + np.exp(-np.clip(x, -500, 500)))
+
+# Avoid log(0) or log of negative values
+epsilon = 1e-10
+
+inverse_sigmoid = lambda x: np.log(1 / (x + epsilon) - 1)
 
 def eta(x, w):
     """Computes eta function used in Kernel Logistic Regression."""
@@ -27,7 +31,7 @@ def compute_W(y, m):
 
 def compute_Z(m, y):
     """Compute the vector Z in the IRLS algorithm."""
-    return m + y / sigmoid(-y * m)
+    return  m + y / (sigmoid(-y * m) + 1e-10)
 
 def compute_alpha(Kernel, W, Z, lambda_reg):
     """Compute alpha using the IRLS algorithm."""
@@ -143,20 +147,22 @@ class KernelLogisticRegression:
         if alpha is None:
             alpha = np.random.rand(kernel_train.shape[0], 1)
 
+        if lambda_regularisation == 0:
+            lambda_regularisation = 1e-6
         old_alpha = np.copy(alpha)
         m = compute_m(kernel_train, alpha)
         P = np.nan_to_num(compute_P(label, m))
         W = np.nan_to_num(compute_W(label, m))
         z = compute_Z(m, label)
-
         alpha = compute_alpha(kernel_train, W, z, lambda_regularisation)
-
-        # Check if convergence criterion is met
-        print(np.linalg.norm(alpha - old_alpha))
-        if np.linalg.norm(alpha - old_alpha) > tolerance:
-            self.fit(kernel_train, label, alpha, tolerance, lambda_regularisation)
-        else:
-            self.alpha_ = alpha
+        while np.linalg.norm(alpha - old_alpha) > tolerance:
+            old_alpha = np.copy(alpha)
+            m = compute_m(kernel_train, alpha)
+            P = np.nan_to_num(compute_P(label, m))
+            W = np.nan_to_num(compute_W(label, m))
+            z = compute_Z(m, label)
+            alpha = compute_alpha(kernel_train, W, z, lambda_regularisation)
+        self.alpha_ = alpha
 
     def get_coef(self):
         """
@@ -177,7 +183,7 @@ class KernelLogisticRegression:
         Returns:
             Probabilities of each test sample being class 1.
         """
-        prediction = np.dot(self.alpha_.T, kernel_test).flatten()
+        prediction = np.dot(self.alpha_.T, kernel_test.T).flatten()
         return sigmoid(prediction)
 
     def predict_class(self, kernel_test):
@@ -191,5 +197,4 @@ class KernelLogisticRegression:
             Predicted class labels (-1 or 1).
         """
         prediction = (self.predict(kernel_test) >= 0.5).astype(int)
-        prediction[prediction == 0] = -1
         return prediction

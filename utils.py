@@ -8,24 +8,26 @@ def get_root_directory():
     """Determine the root directory containing the data."""
     return '.' if 'data' in os.listdir('.') else '..'
 
-# Set root directory
-root = get_root_directory()
+
 
 def load_csv(filepath, sep=',', header=None, index_col=None, as_list=False):
     """Load a CSV file and return its values as a NumPy array or list."""
     data = pd.read_csv(filepath, sep=sep, header=header, index_col=index_col).values
     return data.tolist() if as_list else data
-
 # Load datasets
-X_train = [load_csv(f"{root}/data/Xtr{i}.csv", as_list=True) for i in range(3)]
-X_train_matrix = [load_csv(f"{root}/data/Xtr{i}_mat50.csv", sep=' ') for i in range(3)]
-Y_train = [load_csv(f"{root}/data/Ytr{i}.csv", index_col=0) for i in range(3)]
-X_test = [load_csv(f"{root}/data/Xte{i}.csv", as_list=True) for i in range(3)]
-X_test_matrix = [load_csv(f"{root}/data/Xte{i}_mat50.csv", sep=' ') for i in range(3)]
-
-# Extract first column from sequences
-X_train = [np.array(x)[:, 0].tolist() for x in X_train]
-X_test = [np.array(x)[:, 0].tolist() for x in X_test]
+def load_datasets():
+    X_train = [load_csv(f"data/Xtr{i}.csv", as_list=True) for i in range(3)]
+    X_train_matrix = [load_csv(f"data/Xtr{i}_mat100.csv", sep=' ') for i in range(3)]
+    Y_train = [load_csv(f"data/Ytr{i}.csv", index_col=0) for i in range(3)]
+    X_test = [load_csv(f"data/Xte{i}.csv", as_list=True) for i in range(3)]
+    X_test_matrix = [load_csv(f"data/Xte{i}_mat100.csv", sep=' ') for i in range(3)]
+    # Extract sequences
+    X_train = np.array([np.array(x)[:, 1][1:] for x in X_train]).flatten()
+    X_test = np.array([np.array(x)[:, 1][1:] for x in X_test]).flatten()
+    X_train_matrix = np.array(X_train_matrix).reshape(-1, 100)
+    X_test_matrix = np.array(X_test_matrix).reshape(-1, 100)
+    Y_train = np.array([y[1:] for y in Y_train]).flatten().astype(int)
+    return X_train, X_train_matrix, Y_train, X_test, X_test_matrix
 
 # One-hot encoding for DNA sequences
 def one_hot_encode(letter):
@@ -37,9 +39,10 @@ def sequence_to_one_hot(sequence):
     """Convert a DNA sequence into a one-hot vector."""
     return np.array([one_hot_encode(letter) for letter in sequence]).reshape(-1)
 
+
 def transform_data_to_one_hot(data):
     """Convert a list of DNA sequences into a NumPy array of one-hot vectors."""
-    return np.array([sequence_to_one_hot(seq[0]) for seq in data])
+    return np.array([sequence_to_one_hot(seq) for seq in data])
 
 # Label encoding for DNA sequences
 def sequence_to_label(sequence):
