@@ -29,29 +29,37 @@ class RBFKernel:
 
         return gram_matrix
 
+
 class SpectrumKernel:
     def __init__(self, alphabet, n, use_mismatch=False):
         self.alphabet = alphabet
         self.n = n
         self.use_mismatch = use_mismatch
         self.all_combinations = list(product(alphabet, repeat=n))
-        # Create a dictionary to map n-grams to indices for faster lookup
         self.ngram_to_index = {ngram: idx for idx, ngram in enumerate(self.all_combinations)}
 
     def ngrams(self, seq):
         """
-        Extract n-grams from the sequence.
+        Extract n-grams from the sequence using NumPy for efficiency.
         """
-        return [tuple(seq[i:i + self.n]) for i in range(len(seq) - self.n + 1)]
+        if not isinstance(seq, str):
+            raise ValueError(f"Expected a string sequence, got {type(seq)}: {seq}")
+
+        seq = np.array(list(seq))  # Convert string to character array
+        if len(seq) < self.n:
+            return []
+        return np.lib.stride_tricks.sliding_window_view(seq, self.n).tolist()
+
 
     def create_histogram(self, seq):
         """
         Create a histogram of n-grams for a given sequence.
         """
+
         histogram = np.zeros(len(self.all_combinations), dtype=np.float32)
         for ngram in self.ngrams(seq):
-            if ngram in self.ngram_to_index:
-                index = self.ngram_to_index[ngram]
+            index = self.ngram_to_index.get(tuple(ngram))
+            if index is not None:
                 histogram[index] += 1
         return histogram
 
@@ -66,19 +74,17 @@ class SpectrumKernel:
                     if letter != char:
                         modified_ngram = list(ngram)
                         modified_ngram[i] = letter
-                        if tuple(modified_ngram) in self.ngram_to_index:
-                            mod_index = self.ngram_to_index[tuple(modified_ngram)]
-                            histogram[mod_index] += 0.1  # Mismatch penalty
+                        index = self.ngram_to_index.get(tuple(modified_ngram))
+                        if index is not None:
+                            histogram[index] += 0.1  # Mismatch penalty
+        histogram /= np.linalg.norm(histogram) + 1e-6  # Normalize
         return histogram
 
     def create_histogram_for_seq(self, seq):
         """
-        Select which type of histogram to create based on the `use_mismatch` flag.
+        Select histogram type based on `use_mismatch` flag.
         """
-        if self.use_mismatch:
-            return self.create_histogram_mismatch(seq)
-        else:
-            return self.create_histogram(seq)
+        return self.create_histogram_mismatch(seq) if self.use_mismatch else self.create_histogram(seq)
 
     @staticmethod
     def compute_idf(histograms):
@@ -86,16 +92,23 @@ class SpectrumKernel:
         Compute inverse document frequency (IDF) for the histograms.
         """
         idf = np.sum(histograms, axis=0)
-        return np.maximum(1, np.log10(len(histograms) / (idf + 1e-6)))  # Avoid division by zero
+        return np.maximum(1, np.log10(len(histograms) / (idf + 1e-6)))
 
     @staticmethod
     def kernel(x1, x2):
         """
         Compute the kernel (similarity) between two histograms.
         """
-        return np.vdot(x1, x2)
+        return np.dot(x1, x2)
 
-    def gram_matrix(self, X, Y=None, n_proc=1):
+    def compute_self_similarity(self, seq):
+        """
+        Compute self-similarity for normalization in the Gram matrix.
+        """
+        hist = self.create_histogram_for_seq(seq)
+        return self.kernel(hist, hist) + 1e-6  # Avoid division by zero
+
+    def gram_matrix(self, X, Y=None, n_proc=1, verbose = False):
         """
         Compute the Gram matrix for a set of sequences.
         """
@@ -104,24 +117,32 @@ class SpectrumKernel:
         gram_matrix = np.zeros((len_X, len_Y), dtype=np.float32)
 
         if n_proc > 1:
-            # Parallel computation of the Gram matrix
             with Pool(processes=n_proc) as pool:
-                # Use the appropriate histogram function based on the flag
-                sim_X = pool.map(lambda i: self.kernel(self.create_histogram_for_seq(X[i]), self.create_histogram_for_seq(X[i])), range(len_X))
-                sim_Y = pool.map(lambda i: self.kernel(self.create_histogram_for_seq(Y[i]), self.create_histogram_for_seq(Y[i])), range(len_Y)) if X is not Y else sim_X
-
-                for i in range(len_X):
-                    for j in range(len_Y):
-                        gram_matrix[i, j] = self.kernel(self.create_histogram_for_seq(X[i]), self.create_histogram_for_seq(Y[j])) / (sim_X[i] * sim_Y[j]) ** 0.5
+                if verbose:
+                    print('Computing self-similarity')
+                X = X.astype(str)
+                sim_X = pool.map(self.compute_self_similarity, X)
+                sim_Y = pool.map(self.compute_self_similarity, Y) if X is not Y else sim_X
+                if verbose:
+                    print('Computing histograms')
+                X_hist = np.array([self.create_histogram_for_seq(seq) for seq in X])
+                Y_hist = np.array([self.create_histogram_for_seq(seq) for seq in Y])
+                gram_matrix = np.dot(X_hist, Y_hist.T) / np.sqrt(np.outer(sim_X, sim_Y))
+                if verbose:
+                    print('Done')
         else:
-            sim_X = [self.kernel(self.create_histogram_for_seq(X[i]), self.create_histogram_for_seq(X[i])) for i in range(len_X)]
-            sim_Y = [self.kernel(self.create_histogram_for_seq(Y[i]), self.create_histogram_for_seq(Y[i])) for i in range(len_Y)] if X is not Y else sim_X
+            sim_X = [self.compute_self_similarity(seq) for seq in X]
+            sim_Y = [self.compute_self_similarity(seq) for seq in Y] if X is not Y else sim_X
 
             for i in range(len_X):
                 for j in range(len_Y):
-                    gram_matrix[i, j] = self.kernel(self.create_histogram_for_seq(X[i]), self.create_histogram_for_seq(Y[j])) / (sim_X[i] * sim_Y[j]) ** 0.5
+                    gram_matrix[i, j] = self.kernel(
+                        self.create_histogram_for_seq(X[i]),
+                        self.create_histogram_for_seq(Y[j])
+                    ) / np.sqrt(sim_X[i] * sim_Y[j])
 
         return gram_matrix
+
 
 class LocalAlignmentKernel:
     def __init__(self, match_score=1, mismatch_penalty=-1, gap_penalty=-1):

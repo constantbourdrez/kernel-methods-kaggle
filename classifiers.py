@@ -47,11 +47,11 @@ def compute_alpha(Kernel, W, Z, lambda_reg):
 class SVMC:
     def __init__(self, c=1, min_sv=1e-4):
         self.alpha_ = None
-        self.c = c  # Regularization parameter (corresponds to 1/2*lambda)
+        self.c = c  # Regularization parameter
         self.min_sv = min_sv
         self.b = 0
 
-    def fit(self, kernel_train, label):
+    def fit(self, kernel_train, label, reg=1e-6, min_sv=1e-4):
         """
         Solving C-SVM quadratic optimization problem:
             min 1/2 u^T P u + q^T u
@@ -64,6 +64,7 @@ class SVMC:
         P = diag @ kernel_train @ diag
         Pcvx = cvxopt.matrix(P)
         qcvx = cvxopt.matrix(-np.ones(n))
+        
 
         if self.c is None:
             G = cvxopt.matrix(-np.eye(n))
@@ -78,6 +79,7 @@ class SVMC:
 
         # Solve QP problem
         u = cvxopt.solvers.qp(Pcvx, qcvx, G, h, Acvx, bcvx)
+
         alpha = np.ravel(u['x'])
 
         # Select support vectors
@@ -88,9 +90,9 @@ class SVMC:
 
         print(f"{len(self.alpha_)} support vectors out of {n} points")
 
-        # Compute bias term
+        # Compute bias term using a robust method
         self.b = np.mean(
-            self.sv_label - np.sum(self.alpha_ * self.sv_label * kernel_train[np.ix_(self.sv, self.sv)], axis=1)
+            self.sv_label - np.dot(kernel_train[self.sv][:, self.sv], (self.alpha_ * self.sv_label))
         )
 
     def get_coef(self):
@@ -99,16 +101,11 @@ class SVMC:
 
     def predict(self, kernel_test):
         """Predicts the raw decision function values."""
-        y_predict = np.zeros(kernel_test.shape[1])
-
-        for i in range(kernel_test.shape[1]):
-            y_predict[i] = np.sum(self.alpha_ * self.sv_label * kernel_test[self.sv, i])
-
-        return y_predict + self.b
+        return np.dot(kernel_test[:, self.sv], (self.alpha_ * self.sv_label)) + self.b
 
     def predict_class(self, kernel_test):
-        """Predicts the class labels (-1 or 1)."""
-        return np.where(self.predict(kernel_test) >= 0, 1, -1)
+        """Predicts the class labels (0 or 1)."""
+        return (self.predict(kernel_test) >= 0).astype(int)
 
 class KernelLogisticRegression:
     """
@@ -194,7 +191,7 @@ class KernelLogisticRegression:
             kernel_test: Gram matrix for the test set (shape: [n_samples_train, n_samples_test]).
 
         Returns:
-            Predicted class labels (-1 or 1).
+            Predicted class labels (0 or 1).
         """
         prediction = (self.predict(kernel_test) >= 0.5).astype(int)
         return prediction

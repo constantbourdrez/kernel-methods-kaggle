@@ -27,6 +27,7 @@ def load_datasets():
     X_train_matrix = np.array(X_train_matrix).reshape(-1, 100)
     X_test_matrix = np.array(X_test_matrix).reshape(-1, 100)
     Y_train = np.array([y[1:] for y in Y_train]).flatten().astype(int)
+    #Y_train[Y_train == 0] = -1
     return X_train, X_train_matrix, Y_train, X_test, X_test_matrix
 
 # One-hot encoding for DNA sequences
@@ -82,8 +83,7 @@ def accuracy_score(y_true, y_pred):
     """Compute accuracy score for classification."""
     y_true, y_pred = np.array(y_true), np.array(y_pred)
     correct = np.sum(y_true == y_pred)
-    incorrect = np.sum(y_true != y_pred)
-    return max(correct, incorrect) / len(y_true)
+    return correct / len(y_true)
 
 # Train-test split
 def train_test_split(*arrays, test_size=0.5):
