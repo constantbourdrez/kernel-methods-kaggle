@@ -34,7 +34,6 @@ python start.py --kernel_type desiredkernel --method desiredmethod
 
 ## File Structure
 
-Describe the structure of your repository and the purpose of each file or directory.
 
 - `classifiers.py`: Python script for classification tasks. It contains the implementationf of a kernel logistic regression and a svm
 - `hyperparameters_tuning.py`: Python script for hyperparameter tuning for svm.
