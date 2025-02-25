@@ -44,6 +44,101 @@ def compute_alpha(Kernel, W, Z, lambda_reg):
 
 
 
+class K_means:
+    """
+    K-means algorithm for clustering with kernel and class prediction using only numpy.
+    """
+    def __init__(self, k, max_iter=100, n_proc = False):
+        self.k = k
+        self.max_iter = max_iter
+        self.n_proc = n_proc
+
+    def fit(self, X, y, kernel):
+        """
+        Fit the K-means algorithm using the kernel trick and track class labels.
+
+        Parameters:
+        X (array-like): Input data.
+        y (array-like): Class labels (0 or 1 for each data point).
+        kernel (object): Kernel function that computes the Gram matrix (e.g., RBF kernel).
+        """
+        # Step 1: Compute the Gram matrix using the kernel
+        if self.n_proc != False:
+            gram_matrix = kernel.gram_matrix(X, X, n_proc = self.n_proc)
+        else:
+            gram_matrix = kernel.gram_matrix(X, X)
+
+        # Step 2: Initialize centroids randomly
+        n_samples = gram_matrix.shape[0]
+        centroids_idx = np.random.choice(n_samples, self.k, replace=False)
+        self.centroids = gram_matrix[centroids_idx, :]
+
+        prev_centroids = np.zeros_like(self.centroids)
+        self.cluster_assignments = np.zeros(n_samples)
+
+        # Step 3: Iterate until convergence or max_iter
+        for iteration in range(self.max_iter):
+            # Step 4: Assign points to closest centroid in the kernel space
+            for i in range(n_samples):
+                distances = np.array([
+                    gram_matrix[i, i] - 2 * gram_matrix[i, centroids_idx] + gram_matrix[centroids_idx, centroids_idx]
+                ])
+                self.cluster_assignments[i] = np.argmin(distances)
+
+            # Step 5: Update centroids
+            for k in range(self.k):
+                cluster_points = np.where(self.cluster_assignments == k)[0]
+                if len(cluster_points) > 0:
+                    # Calculate the centroid as the mean of points in the cluster
+                    new_centroid = np.mean(gram_matrix[cluster_points], axis=0)
+                    self.centroids[k] = new_centroid
+
+            # Check for convergence
+            if np.linalg.norm(self.centroids - prev_centroids) < 1e-6:
+                break
+
+            prev_centroids = self.centroids.copy()
+
+        # Track the majority class for each cluster
+        self.cluster_classes = np.zeros(self.k)
+        for k in range(self.k):
+            cluster_points = np.where(self.cluster_assignments == k)[0]
+            if len(cluster_points) > 0:
+                # Calculate majority class manually
+                class_counts = np.bincount(y[cluster_points].astype(int))
+                self.cluster_classes[k] = np.argmax(class_counts)
+
+        self.centroids_idx = centroids_idx
+
+
+
+    def predict(self, X_train, X_val, kernel):
+        """
+        Predict the class (0 or 1) for each point in X based on the kernel K-means clustering.
+
+        Parameters:
+        X (array-like): Input data.
+        kernel (object): Kernel function that computes the Gram matrix (e.g., RBF kernel).
+
+        Returns:
+        class_predictions (array): Predicted class labels (0 or 1) for each point in X.
+        """
+        if self.n_proc != False:
+            gram_matrix = kernel.gram_matrix(X_val, X_train, n_proc = self.n_proc)
+        else:
+            gram_matrix = kernel.gram_matrix(X_val, X_train)
+
+        n_samples = gram_matrix.shape[0]
+        y_pred = np.zeros(n_samples)
+
+        for i in range(n_samples):
+            distances = np.array([
+                gram_matrix[i, i] - 2 * gram_matrix[i, :] @ self.centroids.T + np.diag(self.centroids @ self.centroids.T)
+            ])
+            y_pred[i] = np.argmin(distances)
+        return y_pred
+
+
 class SVMC:
     def __init__(self, c=1, min_sv=1e-4):
         self.alpha_ = None
@@ -64,7 +159,7 @@ class SVMC:
         P = diag @ kernel_train @ diag
         Pcvx = cvxopt.matrix(P)
         qcvx = cvxopt.matrix(-np.ones(n))
-        
+
 
         if self.c is None:
             G = cvxopt.matrix(-np.eye(n))

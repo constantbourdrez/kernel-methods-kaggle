@@ -1,5 +1,5 @@
 from classifiers import SVMC, KernelLogisticRegression
-from kernels import SpectrumKernel, LinearKernel, StringKernel,  HMMFisherKernel, RBFKernel, LocalAlignmentKernel
+from kernels import SpectrumKernel, LinearKernel,  RBFKernel, LocalAlignmentKernel, FisherKernel, CL_Kernel
 from utils import *
 import argparse
 
@@ -17,9 +17,12 @@ def main(args):
         gram_test = kernel.gram_matrix(X_test, X_train, n_proc=4)
     elif args.kernel_type == 'mismatch':
         kernel = SpectrumKernel(alphabet='ACGT', n=7, use_mismatch=True)
-        print(X_train_one_hot.shape, X_train.shape)
         gram_train = kernel.gram_matrix(X_train, X_train, n_proc=4)
         gram_test = kernel.gram_matrix(X_test, X_train, n_proc=4)
+    elif args.kernel_type == 'cl':
+        kernel = CL_Kernel(SpectrumKernel(alphabet='ACGT', n=7), SpectrumKernel(alphabet='ACGT', n=7, use_mismatch=True))
+        gram_train = kernel.gram_matrix(X_train, X_train, n_proc=8)
+        gram_test = kernel.gram_matrix(X_test, X_train, n_proc=8)
     else:
         raise ValueError(f"Invalid kernel type: {args.kernel_type}")
 

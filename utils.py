@@ -64,20 +64,6 @@ def compute_patches(sequence, num_patches):
 
     return [one_hot_vector[i * patch_size : (i + 1) * patch_size] for i in range(num_patches)]
 
-# Model selection for SVM
-def optimal_svm_params(Gram_train, Gram_val, y_train, y_val, c_values, sv_values):
-    """Find the optimal SVM parameters (C, min_sv) by maximizing accuracy."""
-    best_c, best_sv, best_score = 1, 1e-4, 0
-    for c in c_values:
-        for sv in sv_values:
-            svm = SVMC(c=c, min_sv=sv)
-            svm.fit(Gram_train, y_train)
-            y_pred = svm.predict_class(Gram_val).reshape(-1)
-            score = accuracy_score(y_val.reshape(-1), y_pred)
-            if score > best_score:
-                best_c, best_sv, best_score = c, sv, score
-    return best_c, best_sv
-
 # Accuracy computation
 def accuracy_score(y_true, y_pred):
     """Compute accuracy score for classification."""
@@ -86,7 +72,7 @@ def accuracy_score(y_true, y_pred):
     return correct / len(y_true)
 
 # Train-test split
-def train_test_split(*arrays, test_size=0.5):
+def train_test_split(*arrays, test_size=0.5, not_random=False):
     """Split multiple arrays into train and test sets."""
     num_samples = len(arrays[0])
     indices = list(range(num_samples))
@@ -100,3 +86,37 @@ def train_test_split(*arrays, test_size=0.5):
         result.extend([array[train_indices].tolist() if isinstance(array, list) else array[train_indices],
                        array[test_indices].tolist() if isinstance(array, list) else array[test_indices]])
     return result
+
+def normalize_gram_matrix(gram_matrix):
+    """Normalize a non-square Gram matrix."""
+    row_norms = np.linalg.norm(gram_matrix, axis=1, keepdims=True)
+    col_norms = np.linalg.norm(gram_matrix, axis=0, keepdims=True)
+    return gram_matrix / (row_norms @ col_norms)
+
+
+def cross_validation(X, Y, kernel, classifier, n_folds=5, n_proc = 8):
+    """Perform cross-validation for a given classifier using only numpy."""
+    num_samples = len(X)
+    fold_size = int(0.2 * num_samples)
+    indices = np.arange(num_samples)
+    np.random.shuffle(indices)
+
+
+    val_folds = [indices[i * fold_size:(i + 1) * fold_size] for i in range(n_folds)]
+    train_folds = [np.setdiff1d(indices, val_fold).tolist() for val_fold in val_folds]
+    folds = list(zip(train_folds, val_folds))
+    scores = []
+
+    for i in range(n_folds):
+        print(f"Fold {i}: Train size = {len(folds[i][0])}, Validation size = {len(folds[i][1])}")
+        # Split into training and validation sets
+        train_indices, val_indices = folds[i]
+        X_train, Y_train = X[train_indices], Y[train_indices]
+        X_val, Y_val = X[val_indices], Y[val_indices]
+        Y_val[Y_val == -1] = 0
+        gram_train = kernel.gram_matrix(X_train, X_train, n_proc=n_proc)
+        gram_val = kernel.gram_matrix(X_val, X_train, n_proc=n_proc)
+        classifier.fit(gram_train, Y_train)
+        Y_pred = classifier.predict_class(gram_val)
+        scores.append(accuracy_score(Y_val, Y_pred))
+    return np.mean(scores)
