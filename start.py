@@ -1,6 +1,8 @@
 from classifiers import SVMC, KernelLogisticRegression
 from kernels import SpectrumKernel, LinearKernel,  RBFKernel, LocalAlignmentKernel, FisherKernel, CL_Kernel
 from utils import *
+from ensemble_method import Ensemble_SVM
+import pickle
 import argparse
 
 def main(args):
@@ -8,17 +10,19 @@ def main(args):
     # Transform data to one-hot encoding
     X_train_one_hot = transform_data_to_one_hot(X_train)
     X_test_one_hot = transform_data_to_one_hot(X_test)
+
     if args.kernel_type == 'linear':
         kernel = LinearKernel()
     elif args.kernel_type == 'spectrum':
         kernel = SpectrumKernel(alphabet='ACGT', n=7)
-        print(X_train_one_hot.shape, X_train.shape)
-        gram_train = kernel.gram_matrix(X_train, X_train, n_proc=4)
-        gram_test = kernel.gram_matrix(X_test, X_train, n_proc=4)
+        if args.method != 'ensemble':
+            gram_train = kernel.gram_matrix(X_train, X_train, n_proc=4)
+            gram_test = kernel.gram_matrix(X_test, X_train, n_proc=4)
     elif args.kernel_type == 'mismatch':
         kernel = SpectrumKernel(alphabet='ACGT', n=7, use_mismatch=True)
-        gram_train = kernel.gram_matrix(X_train, X_train, n_proc=4)
-        gram_test = kernel.gram_matrix(X_test, X_train, n_proc=4)
+        if args.method != 'ensemble':
+            gram_train = kernel.gram_matrix(X_train, X_train, n_proc=4)
+            gram_test = kernel.gram_matrix(X_test, X_train, n_proc=4)
     elif args.kernel_type == 'cl':
         kernel = CL_Kernel(SpectrumKernel(alphabet='ACGT', n=7), SpectrumKernel(alphabet='ACGT', n=7, use_mismatch=True))
         gram_train = kernel.gram_matrix(X_train, X_train, n_proc=8)
@@ -39,8 +43,13 @@ def main(args):
         logistic_reg.fit(gram_train, Y_train)
         print('Predicting Logistic Regression')
         y_pred = logistic_reg.predict_class(gram_test)
+    elif args.method == 'ensemble':
+        ensemble_svm = Ensemble_SVM([], [], kernel)
+        ensemble_svm = pickle.load(open('ensemble_model.pkl', 'rb'))
+        y_pred = ensemble_svm.predict(X_test)
     else:
         raise ValueError(f"Invalid method: {args.method}")
+
 
 
     with open("Yte.csv", 'w') as f:

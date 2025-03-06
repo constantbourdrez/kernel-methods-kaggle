@@ -41,34 +41,113 @@ def compute_alpha(Kernel, W, Z, lambda_reg):
     to_inv = np.linalg.inv(to_inv)
     alpha = W_sqrt.dot(to_inv).dot(W_sqrt).dot(Z)
     return alpha
+class KernelLogisticRegression:
+    """
+    Kernel Logistic Regression binary classifier.
 
+    Attributes:
+        alpha_: Learned alpha parameter.
+    """
+
+    def __init__(self, init_coef=0):
+        """
+        Constructor for KernelLogisticRegression.
+
+        Args:
+            init_coef: Initial coefficient value. Default is 0.
+        """
+        self.alpha_ = np.array([init_coef]) if init_coef else 0
+
+    def fit(self, kernel_train, label, alpha=None, tolerance=1e-5, lambda_regularisation=0.5):
+        """
+        Fits the model using the IRLS algorithm to learn parameters.
+
+        Args:
+            kernel_train: Gram matrix for the training set (shape: [n_samples, n_samples]).
+            label: True labels of the training set (shape: [n_samples,]).
+            alpha: Initial alpha values. Default is random initialization.
+            tolerance: Stopping criterion for convergence.
+            lambda_regularisation: Regularization parameter.
+
+        Returns:
+            None
+        """
+        if label.ndim == 1:
+            label = label.reshape(-1, 1)
+
+        if alpha is None:
+            alpha = np.random.rand(kernel_train.shape[0], 1)
+
+        if lambda_regularisation == 0:
+            lambda_regularisation = 1e-6
+        old_alpha = np.copy(alpha)
+        m = compute_m(kernel_train, alpha)
+        P = np.nan_to_num(compute_P(label, m))
+        W = np.nan_to_num(compute_W(label, m))
+        z = compute_Z(m, label)
+        alpha = compute_alpha(kernel_train, W, z, lambda_regularisation)
+        while np.linalg.norm(alpha - old_alpha) > tolerance:
+            print(np.linalg.norm(alpha - old_alpha))
+            old_alpha = np.copy(alpha)
+            m = compute_m(kernel_train, alpha)
+            P = np.nan_to_num(compute_P(label, m))
+            W = np.nan_to_num(compute_W(label, m))
+            z = compute_Z(m, label)
+            alpha = compute_alpha(kernel_train, W, z, lambda_regularisation)
+        self.alpha_ = alpha
+
+    def get_coef(self):
+        """
+        Returns the learned model parameters (alpha).
+
+        Returns:
+            List of model parameters (alpha).
+        """
+        return self.alpha_.flatten().tolist()
+
+    def predict(self, kernel_test):
+        """
+        Predict the probabilities for the test set.
+
+        Args:
+            kernel_test: Gram matrix for the test set (shape: [n_samples_train, n_samples_test]).
+
+        Returns:
+            Probabilities of each test sample being class 1.
+        """
+        prediction = np.dot(self.alpha_.T, kernel_test.T).flatten()
+        return sigmoid(prediction)
+
+    def predict_class(self, kernel_test):
+        """
+        Predict the class labels for the test set.
+
+        Args:
+            kernel_test: Gram matrix for the test set (shape: [n_samples_train, n_samples_test]).
+
+        Returns:
+            Predicted class labels (0 or 1).
+        """
+        prediction = (self.predict(kernel_test) >= 0.5).astype(int)
+        return prediction
 
 
 class K_means:
     """
     K-means algorithm for clustering with kernel and class prediction using only numpy.
     """
-    def __init__(self, k, max_iter=100, n_proc = False):
+    def __init__(self, k, max_iter=100):
         self.k = k
         self.max_iter = max_iter
-        self.n_proc = n_proc
 
-    def fit(self, X, y, kernel):
+    def fit(self, gram_matrix, y):
         """
         Fit the K-means algorithm using the kernel trick and track class labels.
 
         Parameters:
-        X (array-like): Input data.
+        gram_matrix (array-like): Precomputed Gram matrix.
         y (array-like): Class labels (0 or 1 for each data point).
-        kernel (object): Kernel function that computes the Gram matrix (e.g., RBF kernel).
         """
-        # Step 1: Compute the Gram matrix using the kernel
-        if self.n_proc != False:
-            gram_matrix = kernel.gram_matrix(X, X, n_proc = self.n_proc)
-        else:
-            gram_matrix = kernel.gram_matrix(X, X)
-
-        # Step 2: Initialize centroids randomly
         n_samples = gram_matrix.shape[0]
         centroids_idx = np.random.choice(n_samples, self.k, replace=False)
         self.centroids = gram_matrix[centroids_idx, :]
@@ -76,22 +155,22 @@ class K_means:
         prev_centroids = np.zeros_like(self.centroids)
         self.cluster_assignments = np.zeros(n_samples)
 
-        # Step 3: Iterate until convergence or max_iter
         for iteration in range(self.max_iter):
-            # Step 4: Assign points to closest centroid in the kernel space
+            # Assign points to closest centroid in the kernel space
             for i in range(n_samples):
                 distances = np.array([
-                    gram_matrix[i, i] - 2 * gram_matrix[i, centroids_idx] + gram_matrix[centroids_idx, centroids_idx]
+                    gram_matrix[i, i] - 2 * gram_matrix[i, centroids_idx[c]] + gram_matrix[centroids_idx[c], centroids_idx[c]]
+                    for c in range(self.k)
                 ])
                 self.cluster_assignments[i] = np.argmin(distances)
 
-            # Step 5: Update centroids
+            # Update centroids
             for k in range(self.k):
                 cluster_points = np.where(self.cluster_assignments == k)[0]
                 if len(cluster_points) > 0:
                     # Calculate the centroid as the mean of points in the cluster
-                    new_centroid = np.mean(gram_matrix[cluster_points], axis=0)
-                    self.centroids[k] = new_centroid
+                    new_centroid = np.mean(gram_matrix[cluster_points][:, cluster_points], axis=0)
+                    self.centroids[k, :len(new_centroid)] = new_centroid
 
             # Check for convergence
             if np.linalg.norm(self.centroids - prev_centroids) < 1e-6:
@@ -104,38 +183,35 @@ class K_means:
         for k in range(self.k):
             cluster_points = np.where(self.cluster_assignments == k)[0]
             if len(cluster_points) > 0:
-                # Calculate majority class manually
                 class_counts = np.bincount(y[cluster_points].astype(int))
                 self.cluster_classes[k] = np.argmax(class_counts)
 
         self.centroids_idx = centroids_idx
+        self.gram_train = gram_matrix
 
-
-
-    def predict(self, X_train, X_val, kernel):
+    def predict_class(self, gram_matrix):
         """
-        Predict the class (0 or 1) for each point in X based on the kernel K-means clustering.
+        Predict the class labels for the test set.
 
         Parameters:
-        X (array-like): Input data.
-        kernel (object): Kernel function that computes the Gram matrix (e.g., RBF kernel).
+        gram_matrix (array-like): Precomputed Gram matrix for the test set (shape: [n_samples_train, n_samples_test]).
 
         Returns:
-        class_predictions (array): Predicted class labels (0 or 1) for each point in X.
+        Predicted class labels (0 or 1).
         """
-        if self.n_proc != False:
-            gram_matrix = kernel.gram_matrix(X_val, X_train, n_proc = self.n_proc)
-        else:
-            gram_matrix = kernel.gram_matrix(X_val, X_train)
-
         n_samples = gram_matrix.shape[0]
         y_pred = np.zeros(n_samples)
 
+
         for i in range(n_samples):
+
             distances = np.array([
-                gram_matrix[i, i] - 2 * gram_matrix[i, :] @ self.centroids.T + np.diag(self.centroids @ self.centroids.T)
+                gram_matrix[i, i] - 2 * gram_matrix[i, self.centroids_idx[c]] + self.gram_train[self.centroids_idx[c], self.centroids_idx[c]]
+                for c in range(self.k)
             ])
-            y_pred[i] = np.argmin(distances)
+            cluster_assignment = np.argmin(distances)
+            y_pred[i] = self.cluster_classes[cluster_assignment]
+
         return y_pred
 
 
@@ -146,7 +222,7 @@ class SVMC:
         self.min_sv = min_sv
         self.b = 0
 
-    def fit(self, kernel_train, label, reg=1e-6, min_sv=1e-4):
+    def fit(self, kernel_train, label):
         """
         Solving C-SVM quadratic optimization problem:
             min 1/2 u^T P u + q^T u
@@ -201,92 +277,3 @@ class SVMC:
     def predict_class(self, kernel_test):
         """Predicts the class labels (0 or 1)."""
         return (self.predict(kernel_test) >= 0).astype(int)
-
-class KernelLogisticRegression:
-    """
-    Kernel Logistic Regression binary classifier.
-
-    Attributes:
-        alpha_: Learned alpha parameter.
-    """
-
-    def __init__(self, init_coef=0):
-        """
-        Constructor for KernelLogisticRegression.
-
-        Args:
-            init_coef: Initial coefficient value. Default is 0.
-        """
-        self.alpha_ = np.array([init_coef]) if init_coef else 0
-
-    def fit(self, kernel_train, label, alpha=None, tolerance=1, lambda_regularisation=0):
-        """
-        Fits the model using the IRLS algorithm to learn parameters.
-
-        Args:
-            kernel_train: Gram matrix for the training set (shape: [n_samples, n_samples]).
-            label: True labels of the training set (shape: [n_samples,]).
-            alpha: Initial alpha values. Default is random initialization.
-            tolerance: Stopping criterion for convergence.
-            lambda_regularisation: Regularization parameter.
-
-        Returns:
-            None
-        """
-        if label.ndim == 1:
-            label = label.reshape(-1, 1)
-
-        if alpha is None:
-            alpha = np.random.rand(kernel_train.shape[0], 1)
-
-        if lambda_regularisation == 0:
-            lambda_regularisation = 1e-6
-        old_alpha = np.copy(alpha)
-        m = compute_m(kernel_train, alpha)
-        P = np.nan_to_num(compute_P(label, m))
-        W = np.nan_to_num(compute_W(label, m))
-        z = compute_Z(m, label)
-        alpha = compute_alpha(kernel_train, W, z, lambda_regularisation)
-        while np.linalg.norm(alpha - old_alpha) > tolerance:
-            old_alpha = np.copy(alpha)
-            m = compute_m(kernel_train, alpha)
-            P = np.nan_to_num(compute_P(label, m))
-            W = np.nan_to_num(compute_W(label, m))
-            z = compute_Z(m, label)
-            alpha = compute_alpha(kernel_train, W, z, lambda_regularisation)
-        self.alpha_ = alpha
-
-    def get_coef(self):
-        """
-        Returns the learned model parameters (alpha).
-
-        Returns:
-            List of model parameters (alpha).
-        """
-        return self.alpha_.flatten().tolist()
-
-    def predict(self, kernel_test):
-        """
-        Predict the probabilities for the test set.
-
-        Args:
-            kernel_test: Gram matrix for the test set (shape: [n_samples_train, n_samples_test]).
-
-        Returns:
-            Probabilities of each test sample being class 1.
-        """
-        prediction = np.dot(self.alpha_.T, kernel_test.T).flatten()
-        return sigmoid(prediction)
-
-    def predict_class(self, kernel_test):
-        """
-        Predict the class labels for the test set.
-
-        Args:
-            kernel_test: Gram matrix for the test set (shape: [n_samples_train, n_samples_test]).
-
-        Returns:
-            Predicted class labels (0 or 1).
-        """
-        prediction = (self.predict(kernel_test) >= 0.5).astype(int)
-        return prediction
