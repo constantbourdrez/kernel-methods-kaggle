@@ -114,9 +114,16 @@ def cross_validation(X, Y, kernel, classifier, n_folds=5, n_proc = 8):
         X_train, Y_train = X[train_indices], Y[train_indices]
         X_val, Y_val = X[val_indices], Y[val_indices]
         Y_val[Y_val == -1] = 0
-        if n_proc != None:
+        if n_proc != None and n_proc != 'fischer':
             gram_train = kernel.gram_matrix(X_train, X_train, n_proc=n_proc)
             gram_val = kernel.gram_matrix(X_val, X_train, n_proc=n_proc)
+        elif n_proc == 'fischer':
+            A, pi_0, pi_fin, p= kernel.intialize_parameters(observation_size=64)
+            # Train the kernel using the EM_HMM method (or similar training process)
+            A, pi_0, pi_fin, p, loss = kernel.EM_HMM(X_train, kernel.k, A, pi_0, pi_fin, p, n_iter=40)
+            gram_train = kernel.gram_matrix(X_train, X_train, A, pi_0, pi_fin, p)
+            gram_val = kernel.gram_matrix(X_val, X_train, A, pi_0, pi_fin, p)
+            gram_train = gram_train + 1e-6 * np.eye(gram_train.shape[0])
         else:
             gram_train = kernel.gram_matrix(X_train, X_train)
             gram_val = kernel.gram_matrix(X_val, X_train)

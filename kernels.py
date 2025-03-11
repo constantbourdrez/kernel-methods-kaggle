@@ -28,12 +28,13 @@ class RBFKernel:
         return np.exp(-self.gamma * pairwise_sq_dists)
 
 class SpectrumKernel:
-    def __init__(self, alphabet, n, use_mismatch=False):
+    def __init__(self, alphabet, n, use_mismatch=False, m = 1):
         self.alphabet = alphabet
         self.n = n
         self.use_mismatch = use_mismatch
         self.all_combinations = list(product(alphabet, repeat=n))
         self.ngram_to_index = {ngram: idx for idx, ngram in enumerate(self.all_combinations)}
+        self.m = m
 
     def ngrams(self, seq):
         """
@@ -60,20 +61,31 @@ class SpectrumKernel:
                 histogram[index] += 1
         return histogram
 
-    def create_histogram_mismatch(self, seq):
+    def create_histogram_mismatch(self, seq,  mismatch_penalty=0.1):
         """
-        Create a histogram of n-grams considering mismatches.
+        Create a histogram of n-grams considering up to a maximum number of mismatches.
+
+        Parameters:
+        seq: The input sequence.
+        mismatch_penalty: The penalty to apply for each mismatch.
         """
         histogram = self.create_histogram(seq)
         for ngram in self.ngrams(seq):
+            # Track the number of mismatches for the current ngram
+            mismatches = 0
             for i, char in enumerate(ngram):
+                if mismatches >= self.m:
+                    break
                 for letter in self.alphabet:
                     if letter != char:
                         modified_ngram = list(ngram)
                         modified_ngram[i] = letter
                         index = self.ngram_to_index.get(tuple(modified_ngram))
                         if index is not None:
-                            histogram[index] += 0.1  # Mismatch penalty
+                            histogram[index] += mismatch_penalty  # Apply the mismatch penalty
+                            mismatches += 1
+                            if mismatches >= self.m:
+                                break
         histogram /= np.linalg.norm(histogram) + 1e-6  # Normalize
         return histogram
 
@@ -140,29 +152,35 @@ class SpectrumKernel:
 
         return gram_matrix
 
+
 class LocalAlignmentKernel:
-    def __init__(self, match_score=1, mismatch_penalty=-1, gap_penalty=-1):
+    def __init__(self, match_score=1, mismatch_penalty=-1, gap_penalty=-1, beta=0.5):
         self.match_score = match_score
         self.mismatch_penalty = mismatch_penalty
         self.gap_penalty = gap_penalty
+        self.beta = beta
 
     def _compute_score(self, seq1, seq2):
         """Compute local alignment score using NumPy (vectorized)."""
         len_seq1, len_seq2 = len(seq1), len(seq2)
         score_matrix = np.zeros((len_seq1 + 1, len_seq2 + 1), dtype=np.float32)
 
-        match_matrix = np.array([
-            [self.match_score if seq1[i-1] == seq2[j-1] else self.mismatch_penalty
-             for j in range(1, len_seq2 + 1)]
-            for i in range(1, len_seq1 + 1)
-        ], dtype=np.float32)
+        # Initialize the first row and column with gap penalties
+        score_matrix[0, :] = np.arange(len_seq2 + 1) * self.gap_penalty
+        score_matrix[:, 0] = np.arange(len_seq1 + 1) * self.gap_penalty
 
+        # Compute match/mismatch matrix
+        seq1 = np.array(seq1)
+        seq2 = np.array(seq2)
+        match_matrix = np.where(seq1[:, None] == seq2[None, :], self.match_score, self.mismatch_penalty)
+
+        # Fill the score matrix
         for i in range(1, len_seq1 + 1):
             for j in range(1, len_seq2 + 1):
                 scores = np.array([
                     score_matrix[i-1, j-1] + match_matrix[i-1, j-1],  # Match/Mismatch
-                    score_matrix[i-1, j] + self.gap_penalty,  # Gap in seq2
-                    score_matrix[i, j-1] + self.gap_penalty,  # Gap in seq1
+                    score_matrix[i-1, j] + self.gap_penalty * self.beta,  # Gap in seq2
+                    score_matrix[i, j-1] + self.gap_penalty * self.beta,  # Gap in seq1
                     0  # Local alignment (no alignment)
                 ])
                 score_matrix[i, j] = np.max(scores)
@@ -181,7 +199,7 @@ class LocalAlignmentKernel:
         Parameters:
         - X: List of sequences.
         - Y: List of sequences (optional, default is X).
-        - n_jobs: Number of processes for parallel execution.
+        - n_proc: Number of processes for parallel execution.
 
         Returns:
         - gram_matrix: The computed Gram matrix.
@@ -189,15 +207,13 @@ class LocalAlignmentKernel:
         Y = X if Y is None else Y
         len_X, len_Y = len(X), len(Y)
         gram_matrix = np.zeros((len_X, len_Y), dtype=np.float32)
-
         # Create list of sequence pairs for parallel computation
         seq_pairs = [(X[i], Y[j]) for i in range(len_X) for j in range(len_Y)]
-
         # Use multiprocessing Pool
-        print('computing results')
+        print('Computing results...')
         with Pool(n_proc) as pool:
-            results = pool.map(self._compute_score_parallel, seq_pairs)
-        print('results computed')
+            results = pool.starmap(self._compute_score_parallel, seq_pairs)
+        print('Results computed')
 
         # Reshape results back into matrix form
         gram_matrix[:, :] = np.array(results, dtype=np.float32).reshape(len_X, len_Y)
@@ -277,6 +293,14 @@ class FisherKernel():
                 for k in range(K)
             ]).squeeze()
 
+            # Ensure A is a 2D array
+            if A.ndim == 1:
+                A = A.reshape(-1, 1)
+
+            # Ensure vec is a 1D array
+            if vec.ndim == 0:
+                vec = np.array([vec])
+
             total = A[:, 0] + vec[0] + beta[t + 1, 0]
             for k in range(1, K):
                 total = self.logplus(total, A[:, k] + vec[k] + beta[t + 1, k])
@@ -284,6 +308,7 @@ class FisherKernel():
             beta[t] = total
 
         return beta
+
 
     def proba_hidden(self, t, alpha, beta):
         prod = alpha[t] + beta[t]
@@ -329,20 +354,26 @@ class FisherKernel():
             betas.append(self.beta_recursion(string, A, pi_fin, p))
 
         A2 = np.array([sum(self.proba_joint_hidden(t, string, alpha, beta, A, p) for t in range(T - 1))
-                       for string, alpha, beta in zip(X, alphas, betas)])
+                    for string, alpha, beta in zip(X, alphas, betas)])
         features = (A2 / A - A2.sum(axis=2).reshape(len(X), -1, 1)).reshape(len(X), -1)
 
         p_zt = np.array([[self.proba_hidden(t, alpha, beta) for t in range(T)] for alpha, beta in zip(alphas, betas)])
 
+        # Ensure p2 has the correct shape
         p2 = np.zeros((len(X), p.shape[0], p.shape[1]))
+
         for t in range(len(X)):
             for k in range(K):
                 for lettre in range(p.shape[1]):
+                    # Ensure indicator_matrix has the correct shape
+                    if lettre >= indicator_matrix.shape[0]:
+                        indicator_matrix = np.resize(indicator_matrix, (lettre + 1, indicator_matrix.shape[1], indicator_matrix.shape[2]))
                     p2[t, k, lettre] = (p_zt[t, :, k] * indicator_matrix[lettre, t, :]).sum()
 
         features = np.concatenate((features, (p2 / p - p2.sum(axis=2).reshape(len(X), -1, 1)).reshape(len(X), -1)),
-                                  axis=1)
+                                axis=1)
         return features
+
 
     def gram_matrix(self, X, Y, A, pi_0, pi_fin, p):
         """Compute the Gram matrix using Fisher Kernel."""
@@ -389,6 +420,14 @@ class FisherKernel():
                     for string, alpha, beta in
                     zip(X, alphas, betas))
             A /= A.sum(axis=1).reshape(-1, 1)
+
+            # Ensure p has the correct shape
+            if p.shape[0] < K:
+                p = np.resize(p, (K, p.shape[1]))
+
+            # Ensure indicator_matrix has the correct shape
+            if indicator_matrix.shape[0] < p.shape[1]:
+                indicator_matrix = np.resize(indicator_matrix, (p.shape[1], indicator_matrix.shape[1], indicator_matrix.shape[2]))
 
             for k in range(K):
                 for lettre in range(p.shape[1]):

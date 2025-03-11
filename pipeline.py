@@ -23,7 +23,7 @@ def main(args):
 
 
     elif args.kernel_type == "local_alignment":
-        kernel = LocalAlignmentKernel()
+        kernel = LocalAlignmentKernel(beta=1)
         n_proc = 8
 
 
