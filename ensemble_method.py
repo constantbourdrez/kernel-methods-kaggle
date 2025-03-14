@@ -31,7 +31,7 @@ def main(args):
     best_N = N_values[0]
     best_accuracy = 0
 
-    kernel = SpectrumKernel(alphabet='ACGT', n=args.n)
+    kernel = SpectrumKernel(alphabet='ACGT', n=args.n, use_mismatch=True, m=1)
     svm = SVMC(c=args.c, min_sv=args.min_sv)
 
     for N in N_values:
@@ -46,9 +46,7 @@ def main(args):
             X_valid_sample = X_train[valid_indices]
             Y_valid_sample = Y_train[valid_indices]
             gram_train = kernel.gram_matrix(X_train_sample, X_train_sample, n_proc=7)
-            gram_train = normalize_gram_matrix(gram_train)
             gram_valid = kernel.gram_matrix(X_valid_sample, X_train_sample, n_proc=7)
-            gram_valid = normalize_gram_matrix(gram_valid)
             svm.fit(gram_train, Y_train_sample)
             sampled_classifiers.append(svm)
             training_samples.append(X_train_sample)

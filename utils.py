@@ -127,6 +127,8 @@ def cross_validation(X, Y, kernel, classifier, n_folds=5, n_proc = 8):
         else:
             gram_train = kernel.gram_matrix(X_train, X_train)
             gram_val = kernel.gram_matrix(X_val, X_train)
+            gram_train = normalize_gram_matrix(gram_train)
+            gram_val = normalize_gram_matrix(gram_val)
         classifier.fit(gram_train, Y_train)
         Y_pred = classifier.predict_class(gram_val)
         scores.append(accuracy_score(Y_val, Y_pred))

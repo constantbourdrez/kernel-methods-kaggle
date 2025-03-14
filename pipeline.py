@@ -14,11 +14,11 @@ def main(args):
 
 
     elif args.kernel_type == 'spectrum':
-        kernel = SpectrumKernel(alphabet='ACGT', n = 8)
+        kernel = SpectrumKernel(alphabet='ACGT', n = 7)
         n_proc = 8
 
     elif args.kernel_type == 'mismatch':
-            kernel = SpectrumKernel(alphabet='ACGT', n=7, use_mismatch=True)
+            kernel = SpectrumKernel(alphabet='ACGT', n=6, use_mismatch=True, m=1)
             n_proc = 7
 
 
