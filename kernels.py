@@ -43,7 +43,7 @@ class SpectrumKernel:
         if not isinstance(seq, str):
             raise ValueError(f"Expected a string sequence, got {type(seq)}: {seq}")
 
-        seq = np.array(list(seq))  # Convert string to character array
+        seq = np.array(list(seq))
         if len(seq) < self.n:
             return []
         return np.lib.stride_tricks.sliding_window_view(seq, self.n).tolist()
@@ -215,7 +215,7 @@ class LocalAlignmentKernel:
             results = pool.starmap(self._compute_score_parallel, seq_pairs)
         print('Results computed')
 
-        # Reshape results back into matrix form
+
         gram_matrix[:, :] = np.array(results, dtype=np.float32).reshape(len_X, len_Y)
 
         return gram_matrix
@@ -293,11 +293,11 @@ class FisherKernel():
                 for k in range(K)
             ]).squeeze()
 
-            # Ensure A is a 2D array
+
             if A.ndim == 1:
                 A = A.reshape(-1, 1)
 
-            # Ensure vec is a 1D array
+
             if vec.ndim == 0:
                 vec = np.array([vec])
 
@@ -359,13 +359,13 @@ class FisherKernel():
 
         p_zt = np.array([[self.proba_hidden(t, alpha, beta) for t in range(T)] for alpha, beta in zip(alphas, betas)])
 
-        # Ensure p2 has the correct shape
+
         p2 = np.zeros((len(X), p.shape[0], p.shape[1]))
 
         for t in range(len(X)):
             for k in range(K):
                 for lettre in range(p.shape[1]):
-                    # Ensure indicator_matrix has the correct shape
+
                     if lettre >= indicator_matrix.shape[0]:
                         indicator_matrix = np.resize(indicator_matrix, (lettre + 1, indicator_matrix.shape[1], indicator_matrix.shape[2]))
                     p2[t, k, lettre] = (p_zt[t, :, k] * indicator_matrix[lettre, t, :]).sum()
@@ -384,7 +384,7 @@ class FisherKernel():
         # Compute the Gram matrix by taking the dot product between all feature vectors
         G = np.dot(feature_vectors_X, feature_vectors_Y.T)
 
-        # Optionally normalize the Gram matrix if specified
+
         if self.normalize:
             G /= np.linalg.norm(G, axis=1, keepdims=True)
 
@@ -421,11 +421,11 @@ class FisherKernel():
                     zip(X, alphas, betas))
             A /= A.sum(axis=1).reshape(-1, 1)
 
-            # Ensure p has the correct shape
+
             if p.shape[0] < K:
                 p = np.resize(p, (K, p.shape[1]))
 
-            # Ensure indicator_matrix has the correct shape
+           
             if indicator_matrix.shape[0] < p.shape[1]:
                 indicator_matrix = np.resize(indicator_matrix, (p.shape[1], indicator_matrix.shape[1], indicator_matrix.shape[2]))
 

@@ -230,7 +230,7 @@ class SVMC:
                   Gu <= h
         """
         n = label.shape[0]
-        label = label.reshape(-1, 1)  # Ensure label is a column vector
+        label = label.reshape(-1, 1)
         diag = np.diag(label.flatten())
         P = diag @ kernel_train @ diag
         Pcvx = cvxopt.matrix(P)
@@ -256,7 +256,7 @@ class SVMC:
         # Select support vectors
         sv = alpha > self.min_sv
         self.alpha_ = alpha[sv]
-        self.sv = np.where(sv)[0]  # Ensure it's a 1D array
+        self.sv = np.where(sv)[0]  
         self.sv_label = label[sv].flatten()
 
         print(f"{len(self.alpha_)} support vectors out of {n} points")
